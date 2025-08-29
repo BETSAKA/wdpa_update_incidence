@@ -5,10 +5,13 @@ abstract: "La *World Database on Protected Areas* constitue la principale source
 format: 
   html: 
     toc: true
+    code-fold: true
     embed-resources: true
-  docx: default
+  docx: 
+    echo: false
   typst:
     citeproc: true
+    echo: false
 editor_options: 
   chunk_output_type: console
 execute: 
@@ -93,12 +96,14 @@ options(scipen = 999) # disable scientific notations
 
 # Load files downloaded from GEE
 wdpa_2024 <- st_read(
-  "/vsis3/projet-betsaka/diffusion/wdpa_compare/gee_snapshots/WDPA_Nov_2024_MDG.geojson"
+  "/vsis3/projet-betsaka/diffusion/wdpa_compare/gee_snapshots/WDPA_Nov_2024_MDG.geojson",
+  quiet = TRUE
   ) %>%
   mutate(version = 2024) 
 
 wdpa_2025 <- st_read(
-  "/vsis3/projet-betsaka/diffusion/wdpa_compare/gee_snapshots/WDPA_Jan_2025_MDG.geojson"
+  "/vsis3/projet-betsaka/diffusion/wdpa_compare/gee_snapshots/WDPA_Jan_2025_MDG.geojson",
+  quiet = TRUE
   ) %>%
   mutate(version = 2024) 
 
@@ -151,7 +156,7 @@ wdpa_2025 <- wdpa_2025 %>%
 
 Pour l’analyse de la déforestation, nous avons mobilisé les données de Hansen et al. [-@hansen_high-resolution_2013], qui fournissent pour chaque pixel d’environ 30 mètres la couverture en canopée en 2000 ainsi que l’année de perte éventuelle entre 2001 et 2024. Comme dans de nombreuses études, nous avons retenu un seuil uniforme de 30 % de couverture de canopée pour classer un pixel comme forêt. Rafanoharana et al. [-@rafanoharana_tree_2023] ont montré l’intérêt de définir des seuils différenciés par aire protégée pour mieux refléter les conditions écologiques locales ; toutefois, nous n’avons pas retenu cette approche ici afin de privilégier la comparabilité et la simplicité et la clarté des résultats.
 
-```{r, echo=FALSE, eval=FALSE}
+```{r, eval=FALSE}
 wdpa_both <- wdpa_2024 %>%
   select(-GIS_M_AREA, -GIS_AREA) %>%
   rename(PARENT_ISO3 = PARENT_ISO) %>%
@@ -170,7 +175,7 @@ with_progress({
 
 Pour relier les polygones aux données de couverture et de perte forestière, nous avons utilisé le package mapme.biodiversity [@mapme.biodiversity]. Ce package fournit une interface unifiée permettant de mobiliser différentes bases de données spatiales, d’automatiser l’extraction des indicateurs à l’échelle d’entités géographiques données (ici, les aires protégées), et d’assurer la reproductibilité des analyses. Nous avons ainsi calculé un indicateur agrégé par aire protégée de couverture forestière en 2000, la superficie restante en 2024 et le taux cumulé de déforestation correspondant.
 
-```{r, echo=FALSE, eval=FALSE}
+```{r, eval=FALSE}
 
 plan(multisession, workers = 8)
 
@@ -235,13 +240,13 @@ write_parquet(wdpa_diff,
 
 # Résultats
 
-La figure suivante présente la couverture des aires protégées de Madagascar avant (en bleu avec transparence) et après (en rouge avec transparence) la correction survenue en décembre 2024. Compte tenu de la transparence, les zones considérées comme protégées dans les deu jeux de données apparaissent en violet, celles qui étaient considérées comme conservées que dans les données jusqu'en 2024 apparaissent en bleu et celles sui sont considérées comme conservées que depuis la correction apparaîssent en rouge. 
+La figure suivante présente la couverture des aires protégées de Madagascar avant (en bleu avec transparence) et après (en rouge avec transparence) la correction survenue en décembre 2024. Compte tenu de la transparence, les zones considérées comme protégées dans les deux jeux de données apparaissent en violet, celles qui étaient considérées comme conservées que dans les données jusqu'en 2024 apparaissent en bleu et celles sui sont considérées comme conservées que depuis la correction apparaîssent en rouge. 
 
 ```{r}
 #| fig-cap: "Comparaison spatiale des aires protégées de Madagascar dans WDPA : versions novembre 2024 vs janvier 2025"
 
 # Choix du mode selon le format de rendu
-if (?knitr::is_html_output()) {
+if (knitr::is_html_output()) {
   tmap_mode("view") # interactif (Leaflet) pour HTML
 } else {
   tmap_mode("plot") # statique pour PDF/DOCX
@@ -301,7 +306,7 @@ n_area_change_inf <- area_change %>% filter(rel_change_pct <= seuil) %>%
   summarise(n = n_distinct(WDPAID)) %>% pull(n)
 
 # Tableau récapitulatif avec libellés en français
-tibble(
+tab_modalites <- tibble(
   indicateur = c(
     "Aires protégées absentes en 2024 mais reconnues (« Designated ») en 2025",
     "Aires protégées présentes en 2024 mais sans statut reconnu, devenues « Designated » en 2025",
@@ -379,12 +384,15 @@ ggplot(ap_var2, aes(x = area_ha_diff, y = defor_pct_diff)) +
                      labels = c("Diminution surface", "Augmentation surface"),
                      name = "Variation de surface") +
   labs(
-    title = paste0("Variation du taux de déforestation pour les AP avec variations de surface >", seuil, "%"),
+    title = paste0("Variation du taux de déforestation pour les AP avec variations\nde surface >", seuil, "%"),
     x = "Variation relative de surface (%)",
     y = "Variation relative du taux de déforestation (%)"
   ) +
-  theme_minimal(base_size = 13)
-  theme_minimal(base_size = 13)
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12),
+    axis.title = element_text(size = 10)
+  )
 ```
 
 La grande majorité des points se situe dans le quadrant inférieur gauche, ce qui traduit une diminution simultanée de la surface reconnue et du taux calculé de déforestation. Ce résultat s’explique par le fait que les zones qui avaient à tort été incluses dans les périmètres des aires protégées dans WDPA jusqu'en 2024 n'étaient en réalité pas protégés, et qu'ils subissaient des niveaux de déforestation plus élevés que les zones véritablement conservées. À l’inverse, un seul cas d’augmentation notable de superficie est associé à une taux de déforestation stable. L’ensemble illustre la sensibilité des indicateurs d'efficacité des aires protégées aux ajustements géométriques de la base WDPA.
@@ -392,3 +400,5 @@ La grande majorité des points se situe dans le quadrant inférieur gauche, ce q
 # Conclusion
 
 L’analyse met en évidence l’impact majeur qu’a eu la correction de la WDPA en décembre 2024 sur la représentation du réseau national d’aires protégées à Madagascar par les chercheurs, décideurs et praticiens qui utilisent cette base. Les différences constatées concernent aussi bien le nombre et le statut des aires que leurs périmètres et les taux de déforestation qui en sont déduits. Ces résultats soulignent que de nombreuses évaluations antérieures ont reposé sur des données entachées d’erreurs structurelles, susceptibles d’avoir biaisé les diagnostics sur l’efficacité des aires protégées. À l’avenir, l’utilisation des versions corrigées de la WDPA apparaît indispensable pour produire des indicateurs fiables et comparables, et pour appuyer des décisions de politique publique et de conservation fondées sur des bases empiriques solides.
+
+# References
