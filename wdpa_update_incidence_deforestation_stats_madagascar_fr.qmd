@@ -1,0 +1,394 @@
+---
+title: "Incidence des correction des données WDPA pour Madagascar sur les statistiques de déforestation"
+author: "Florent Bédécarrats, Ollier Andrianambinina, Ingrid Dallmann, Seheno Ramanantsoa et Melvin Wong"
+abstract: "La *World Database on Protected Areas* constitue la principale source d’information internationale sur les aires protégées, utilisée par les chercheurs, les décideurs et les praticiens de la conservation. Jusqu’en 2024, les données relatives à Madagascar y étaient largement incomplètes ou erronées. Leur correction en décembre 2024 a profondément modifié le panorama du réseau national d’aires protégées. Cette annexe compare les versions ancienne et corrigée de la WDPA en analysant les différences en termes de nombre, de statut, de couverture spatiale et de taux de déforestation observés. Les écarts constatés s’avèrent substantiels pour de nombreuses aires protégées et modifient significativement l’évaluation de leur efficacité. Ces résultats invitent à réinterpréter les analyses antérieures basées sur des données biaisées et à fonder les études futures sur la base corrigée."
+format: 
+  html: 
+    toc: true
+    embed-resources: true
+  docx: default
+  typst:
+    citeproc: true
+editor_options: 
+  chunk_output_type: console
+execute: 
+  warning: false
+  error: false
+bibliography: references.bib
+bibliographystyle: chicago-author-date
+bibliographytitle: none
+section-numbering: 1.1.a
+---
+
+# Introduction
+
+La mesure de l’efficacité des aires protégées repose largement sur la comparaison des dynamiques de déforestation à l’intérieur et à l’extérieur de leurs frontières. Dans ce type d’analyse, la précision des données de délimitation est déterminante : une erreur de tracé ou un statut mal renseigné peut modifier le calcul des surfaces de forêt et donc fausser l’évaluation de la performance.
+
+À Madagascar, les données de la *World Database on Protected Areas* (WDPA) ont longtemps souffert d’omissions et d’incohérences. Or cette base constitue la source principale mobilisée par les chercheurs, les plateformes internationales de suivi et les bailleurs pour apprécier l’état du réseau national d’aires protégées. Une correction majeure intervenue en décembre 2024 modifie sensiblement la représentation de ce réseau et appelle à mesurer son incidence sur les statistiques habituellement produites.
+
+Cette annexe documente ces différences en comparant les versions de novembre 2024 et janvier 2025 de la WDPA. Elle met en évidence leurs effets sur les indicateurs clés de suivi, en particulier les taux de déforestation, afin d’éclairer la manière dont les analyses passées ont pu être biaisées et d’appuyer les futures évaluations sur des bases corrigées
+
+# Données
+
+Nous avons utilisé les archives mensuelles WDPA disponibles sur [la plateforme Google Earth Engine (GEE) platform](https://developers.google.com/earth-engine/datasets/catalog/WCMC_WDPA_current_polygons). Les polygones correspondant à Madagascar ont été extraits pour novembre 2024 et janvier 2025, afin de comparer la version précédant la correction et celle publiée immédiatement après.
+
+```{js, eval=FALSE}
+// Code used on google earth engine to export the data.
+// WDPA monthly snapshots
+var nov_24 = ee.FeatureCollection('WCMC/WDPA/202411/polygons');
+var jan_25 = ee.FeatureCollection('WCMC/WDPA/202501/polygons');
+
+// Keep only Madagascar
+var mdgOnly = ee.Filter.stringContains('ISO3', 'MDG');
+function clean(fc) {
+  return fc.filter(mdgOnly); 
+}
+
+var nov_24_mdg = clean(nov_24);
+var jan_25_mdg = clean(jan_25);
+
+
+// Export
+function exportGeoJSON(fc, name) {
+  Export.table.toDrive({
+    collection: fc,
+    description: name,
+    fileFormat: 'GeoJSON',
+    folder: 'WDPA_exports'
+  });
+}
+
+exportGeoJSON(nov_24_mdg, 'WDPA_Nov_2024_MDG');
+exportGeoJSON(jan_25_mdg, 'WDPA_Jan_2025_MDG');
+```
+
+Ces fichiers ont ensuite été importés dans R pour traitement. Certaines aires protégées étaient stockées sous forme de geometry collections (7 en 2024, 5 en 2025), qui ont été converties en multipolygones afin de faciliter les comparaisons.
+
+```{r}
+# Install if not present or old
+if (!requireNamespace("mapme.biodiversity", quietly = TRUE) ||
+    packageVersion("mapme.biodiversity") <= "0.9.4") {
+  remotes::install_github("mapme-initiative/mapme.biodiversity",
+                          upgrade = "never")
+}  
+
+# [1] "0.9.4"
+library(tidyverse)
+library(tmap)
+library(sf)
+library(wdpar)
+library(mapme.biodiversity)
+library(aws.s3)
+library(geoarrow)
+library(arrow)
+library(progressr)
+library(units)
+library(future)
+library(tictoc)
+library(gt)
+
+# Some pgtable# Some parameters
+dir.create("data", showWarnings = FALSE)
+options(scipen = 999) # disable scientific notations
+
+# Load files downloaded from GEE
+wdpa_2024 <- st_read(
+  "/vsis3/projet-betsaka/diffusion/wdpa_compare/gee_snapshots/WDPA_Nov_2024_MDG.geojson"
+  ) %>%
+  mutate(version = 2024) 
+
+wdpa_2025 <- st_read(
+  "/vsis3/projet-betsaka/diffusion/wdpa_compare/gee_snapshots/WDPA_Jan_2025_MDG.geojson"
+  ) %>%
+  mutate(version = 2024) 
+
+# GEE stored some PAs as "geometry collections": 7 in 2024, 5 in 2025
+types_2024 <- wdpa_2024 %>%
+  group_by(st_geometry_type(.)) %>%
+  st_drop_geometry() %>%
+  summarise(n = n())
+types_2025 <- wdpa_2025 %>%
+  group_by(st_geometry_type(.)) %>%
+  st_drop_geometry() %>%
+  summarise(n = n())
+# types_2024
+# A tibble: 3 × 2
+#   `st_geometry_type(.)`     n
+#   <fct>                 <int>
+# 1 POLYGON                 127
+# 2 MULTIPOLYGON             29
+# 3 GEOMETRYCOLLECTION        7
+# types_2025
+# # A tibble: 3 × 2
+#   `st_geometry_type(.)`     n
+#   <fct>                 <int>
+# 1 POLYGON                 121
+# 2 MULTIPOLYGON             38
+# 3 GEOMETRYCOLLECTION        5
+
+# We convert them to multipolygons
+gc_to_multipolygon <- function(x) {
+  if (st_geometry_type(x) == "GEOMETRYCOLLECTION") {
+    polys <- st_collection_extract(x, "POLYGON")
+    geom <- st_cast(st_combine(polys), "MULTIPOLYGON") 
+    st_geometry(x) <- st_sfc(geom, crs = st_crs(x))
+    return(x)
+  } else {
+    return(x)
+  }
+}
+
+wdpa_2024 <- wdpa_2024 %>%
+  split(seq_len(nrow(.))) %>%              
+  map(gc_to_multipolygon) %>%              
+  bind_rows()           
+
+wdpa_2025 <- wdpa_2025 %>%
+  split(seq_len(nrow(.))) %>%              
+  map(gc_to_multipolygon) %>%              
+  bind_rows()  
+```
+
+Pour l’analyse de la déforestation, nous avons mobilisé les données de Hansen et al. [-@hansen_high-resolution_2013], qui fournissent pour chaque pixel d’environ 30 mètres la couverture en canopée en 2000 ainsi que l’année de perte éventuelle entre 2001 et 2024. Comme dans de nombreuses études, nous avons retenu un seuil uniforme de 30 % de couverture de canopée pour classer un pixel comme forêt. Rafanoharana et al. [-@rafanoharana_tree_2023] ont montré l’intérêt de définir des seuils différenciés par aire protégée pour mieux refléter les conditions écologiques locales ; toutefois, nous n’avons pas retenu cette approche ici afin de privilégier la comparabilité et la simplicité et la clarté des résultats.
+
+```{r, echo=FALSE, eval=FALSE}
+wdpa_both <- wdpa_2024 %>%
+  select(-GIS_M_AREA, -GIS_AREA) %>%
+  rename(PARENT_ISO3 = PARENT_ISO) %>%
+  bind_rows(wdpa_2025) %>%
+  st_transform(4326) # WGS84
+
+mapme_options(outdir = "/vsis3/projet-betsaka/diffusion/wdpa_compare/mapme")
+
+with_progress({
+  wdpa_both_mapme <- wdpa_both %>%
+  get_resources(get_gfw_lossyear(), get_gfw_treecover())
+})
+```
+
+# Méthode
+
+Pour relier les polygones aux données de couverture et de perte forestière, nous avons utilisé le package mapme.biodiversity [@mapme.biodiversity]. Ce package fournit une interface unifiée permettant de mobiliser différentes bases de données spatiales, d’automatiser l’extraction des indicateurs à l’échelle d’entités géographiques données (ici, les aires protégées), et d’assurer la reproductibilité des analyses. Nous avons ainsi calculé un indicateur agrégé par aire protégée de couverture forestière en 2000, la superficie restante en 2024 et le taux cumulé de déforestation correspondant.
+
+```{r, echo=FALSE, eval=FALSE}
+
+plan(multisession, workers = 8)
+
+tic("compute treecover area")
+with_progress({
+  wdpa_both_mapme <- wdpa_both_mapme %>%
+  calc_indicators(calc_treecover_area(years = 2000:2024, min_cover = 30))
+})
+toc()
+# compute treecover area: 191.18 sec elapsed
+plan(sequential)
+
+write_rds(wdpa_both_mapme, "data/wdpa_both_mapme.rds")
+```
+
+On ne garde dans l'ensemble que les aires protégées qui sont considérées comme légalement reconnues (STATUS = "Designated") avant ou après correction. On exclut aussi les réserves de biosphère UNESCO. On fait une inspection visuelle de la cartographie des aires protégées avant de produire une série de statistiques sur leur contenu, afin de voir quelles aires protégées étaient à tort absente de la base jusqu'en 2024, lesquelles apparaissaient mais sans statut légalement reconnu. Pour celles qui apparaissaient avant et après 2024, on compare leur surface et on compare le taux de déforestation sur la période 2001-2024. Les résultats sont ensuite restitués sous forme de cartes et de tableaux.
+
+```{r}
+wdpa_both_mapme <- read_rds("data/wdpa_both_mapme.rds")
+
+wdpa_both_stats <- wdpa_both_mapme %>%
+  mutate(area_ha = as.numeric(set_units(st_area(.), ha))) %>%
+  select(WDPAID, version, assetid, area_ha, treecover_area) %>%
+  portfolio_wide() %>%
+  st_drop_geometry() %>%
+  select(WDPAID, version, area_ha, 
+         treecover_ha_2000 = `treecover_area_2000-01-01_treecover_ha`,
+         treecover_ha_2024 = `treecover_area_2024-01-01_treecover_ha`) %>%
+  mutate(total_defor_pct  = ((treecover_ha_2024 - treecover_ha_2000) / 
+                               treecover_ha_2000) * 100) 
+
+
+wdpa_both_wide <- wdpa_both_stats %>%
+  mutate(version = paste0("v", version)) %>%
+  pivot_wider(
+    id_cols = WDPAID,
+    names_from = version,
+    values_from = c(area_ha, total_defor_pct),
+    names_glue = "{.value}_{version}"
+  ) %>%
+  left_join(wdpa_2024 %>%
+              st_drop_geometry() %>%
+              select(WDPAID, NAME_2024 = NAME, STATUS_2024 = STATUS), 
+            by = "WDPAID") %>%
+  left_join(wdpa_2025 %>%
+              st_drop_geometry() %>%
+              select(WDPAID, NAME_2025 = NAME, STATUS_2025 = STATUS, STATUS_YR,
+                     MARINE_2025 = MARINE), 
+            by = "WDPAID") %>%
+  relocate(starts_with("NAME"), .after = WDPAID) %>%
+  filter(STATUS_2024 == "Designated" | STATUS_2025 == "Designated")
+
+
+wdpa_diff <- wdpa_both_wide %>%
+  mutate(area_ha_diff = 100*(area_ha_v2025 - area_ha_v2024) / area_ha_v2024,
+         defor_pct_diff = 100*(total_defor_pct_v2025 - total_defor_pct_v2024) / 
+           total_defor_pct_v2024)
+
+write_parquet(wdpa_diff, 
+              "s3://projet-betsaka/diffusion/wdpa_compare/wdpa_diff.parquet")
+```
+
+# Résultats
+
+La figure suivante présente la couverture des aires protégées de Madagascar avant (en bleu avec transparence) et après (en rouge avec transparence) la correction survenue en décembre 2024. Compte tenu de la transparence, les zones considérées comme protégées dans les deu jeux de données apparaissent en violet, celles qui étaient considérées comme conservées que dans les données jusqu'en 2024 apparaissent en bleu et celles sui sont considérées comme conservées que depuis la correction apparaîssent en rouge. 
+
+```{r}
+#| fig-cap: "Comparaison spatiale des aires protégées de Madagascar dans WDPA : versions novembre 2024 vs janvier 2025"
+
+# Choix du mode selon le format de rendu
+if (?knitr::is_html_output()) {
+  tmap_mode("view") # interactif (Leaflet) pour HTML
+} else {
+  tmap_mode("plot") # statique pour PDF/DOCX
+}
+
+# tmap_mode("view")
+  tm_shape(wdpa_2024, name = "WDPA 2024 Nov") +
+    tm_fill(fill = "blue", fill_alpha = 0.3) +
+  tm_shape(wdpa_2025, name = "WDPA 2025 Jan") +
+    tm_fill(fill = "red", fill_alpha = 0.3) +
+    tm_basemap("Esri.WorldGrayCanvas")
+```
+
+On observe notamment l’importance des corrections récentes dans plusieurs régions, en particulier dans le nord et le sud-ouest, où des périmètres jusque-là absents ou incomplets apparaissent désormais. Ces décalages donnent une première impression de l'ampleur considérables des discordance entre la version historique et la version corrigée.
+
+Afin de qualifier plus précisément l’ampleur des écarts entre les deux versions de la WDPA, nous avons classé les aires protégées de Madagascar selon différentes modalités de concordance ou de divergence entre novembre 2024 et janvier 2025. Le tableau ci-dessous présente le nombre d’aires protégées concernées par chaque situation, qu’il s’agisse d’ajouts, de retraits, de changements de statut ou de variations de superficie.
+
+```{r}
+# Paramètre du seuil
+seuil <- 5
+
+# AP existantes en 2025 (Designated) mais absentes en 2024
+n_added_absent24 <- wdpa_both_wide %>%
+  filter(STATUS_2025 == "Designated", is.na(NAME_2024)) %>%
+  summarise(n = n_distinct(WDPAID)) %>% pull(n)
+
+# AP existantes en 2025 (Designated) mais non-designated en 2024
+n_added_fixstatus <- wdpa_both_wide %>%
+  filter(STATUS_2025 == "Designated",
+         !is.na(NAME_2024),
+         is.na(STATUS_2024) | STATUS_2024 != "Designated") %>%
+  summarise(n = n_distinct(WDPAID)) %>% pull(n)
+
+# AP Designated en 2024 mais absentes en 2025
+n_removed_absent25 <- wdpa_both_wide %>%
+  filter(STATUS_2024 == "Designated", is.na(NAME_2025)) %>%
+  summarise(n = n_distinct(WDPAID)) %>% pull(n)
+
+# AP Designated en 2024 mais non-designated en 2025
+n_removed_loststatus <- wdpa_both_wide %>%
+  filter(STATUS_2024 == "Designated",
+         !is.na(NAME_2025),
+         is.na(STATUS_2025) | STATUS_2025 != "Designated") %>%
+  summarise(n = n_distinct(WDPAID)) %>% pull(n)
+
+# Variations de surface pour les AP présentes dans les deux versions
+area_change <- wdpa_both_wide %>%
+  filter(!is.na(NAME_2024), !is.na(NAME_2025),
+         !is.na(area_ha_v2024), !is.na(area_ha_v2025),
+         area_ha_v2024 > 0) %>%
+  mutate(rel_change_pct = abs((area_ha_v2025 - area_ha_v2024) / area_ha_v2024) * 100)
+
+n_area_change_sup <- area_change %>% filter(rel_change_pct > seuil)  %>%
+  summarise(n = n_distinct(WDPAID)) %>% pull(n)
+
+n_area_change_inf <- area_change %>% filter(rel_change_pct <= seuil) %>%
+  summarise(n = n_distinct(WDPAID)) %>% pull(n)
+
+# Tableau récapitulatif avec libellés en français
+tibble(
+  indicateur = c(
+    "Aires protégées absentes en 2024 mais reconnues (« Designated ») en 2025",
+    "Aires protégées présentes en 2024 mais sans statut reconnu, devenues « Designated » en 2025",
+    "Aires protégées reconnues (« Designated ») en 2024 mais absentes en 2025",
+    "Aires protégées reconnues (« Designated ») en 2024 mais sans statut reconnu en 2025",
+    paste0("Aires protégées présentes dans les deux versions, variation de surface > ", seuil, " %"),
+    paste0("Aires protégées présentes dans les deux versions, variation de surface ≤ ", seuil, " %")
+  ),
+  effectif = c(
+    n_added_absent24,
+    n_added_fixstatus,
+    n_removed_absent25,
+    n_removed_loststatus,
+    n_area_change_sup,
+    n_area_change_inf
+  )
+)
+
+tab_modalites %>%
+  gt() %>%
+  cols_label(
+    indicateur = "Modalités de comparaison",
+    effectif   = "Nombre d’aires"
+  ) %>%
+  fmt_number(
+    columns = effectif,
+    decimals = 0,
+    use_seps = TRUE,
+    sep_mark = "\u202f"  # espace fine insécable pour la typographie française
+  ) %>%
+  tab_header(
+    title = md("**Comparaison WDPA 2024 vs 2025 (Madagascar)**")
+    ) %>%
+  cols_align(
+    align = "left", columns = indicateur
+  ) %>%
+  cols_align(
+    align = "right", columns = effectif
+  ) %>%
+  tab_options(
+    table.font.size = px(14),
+    data_row.padding = px(6)
+  ) %>%
+  opt_row_striping() %>%
+  tab_style(
+    style = list(cell_text(weight = "bold")),
+    locations = cells_body(columns = effectif)
+  ) %>%
+  tab_source_note(
+    source_note = md(
+      "Note : « Designated » renvoie au statut officiel WDPA. Les modalités reposent sur les archives WDPA de novembre 2024 et janvier 2025."
+    )
+  )
+```
+
+Les résultats confirment l’ampleur des corrections apportées en décembre 2024. On note notamment 70 aires protégées qui figuraient déjà dans la base mais sans statut reconnu et qui sont désormais officiellement enregistrées comme « Designated ». À l’inverse, 22 aires qui étaient considérées comme reconnues en 2024 n’apparaissent plus dans la version corrigée. Les différences de superficie sont également substantielles : près de 49 aires protégées présentent un écart de surface supérieur à 5 % entre les deux versions. Ces résultats montrent que les modifications ne se limitent pas à des ajustements marginaux, mais qu’elles affectent en profondeur la composition et l’étendue du réseau présent dans les données.
+
+Pour ces 49 aires protégées dont la superficie a varié d’au moins 5 %, nous avons également examiné l’incidence sur le taux cumulé de déforestation mesuré entre 2000 et 2024. Le graphique ci-dessous met en relation la variation relative de surface (axe X) et la variation relative du taux de déforestation (axe Y).
+
+```{r}
+# Filtrer uniquement les AP avec variation > seuil
+ap_var2 <- wdpa_diff %>%
+  filter(!is.na(area_ha_v2024), !is.na(area_ha_v2025),
+         !is.na(total_defor_pct_v2024), !is.na(total_defor_pct_v2025),
+         area_ha_v2024 > 1,
+         abs(area_ha_diff) > seuil,
+         MARINE_2025 == 0) %>%
+  mutate(nom = coalesce(NAME_2025, NAME_2024))
+
+ggplot(ap_var2, aes(x = area_ha_diff, y = defor_pct_diff)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_point(aes(color = area_ha_diff > 0), size = 3, alpha = 0.7) +
+  scale_color_manual(values = c("TRUE" = "steelblue", "FALSE" = "tomato"),
+                     labels = c("Diminution surface", "Augmentation surface"),
+                     name = "Variation de surface") +
+  labs(
+    title = paste0("Variation du taux de déforestation pour les AP avec variations de surface >", seuil, "%"),
+    x = "Variation relative de surface (%)",
+    y = "Variation relative du taux de déforestation (%)"
+  ) +
+  theme_minimal(base_size = 13)
+  theme_minimal(base_size = 13)
+```
+
+La grande majorité des points se situe dans le quadrant inférieur gauche, ce qui traduit une diminution simultanée de la surface reconnue et du taux calculé de déforestation. Ce résultat s’explique par le fait que les zones qui avaient à tort été incluses dans les périmètres des aires protégées dans WDPA jusqu'en 2024 n'étaient en réalité pas protégés, et qu'ils subissaient des niveaux de déforestation plus élevés que les zones véritablement conservées. À l’inverse, un seul cas d’augmentation notable de superficie est associé à une taux de déforestation stable. L’ensemble illustre la sensibilité des indicateurs d'efficacité des aires protégées aux ajustements géométriques de la base WDPA.
+
+# Conclusion
+
+L’analyse met en évidence l’impact majeur qu’a eu la correction de la WDPA en décembre 2024 sur la représentation du réseau national d’aires protégées à Madagascar par les chercheurs, décideurs et praticiens qui utilisent cette base. Les différences constatées concernent aussi bien le nombre et le statut des aires que leurs périmètres et les taux de déforestation qui en sont déduits. Ces résultats soulignent que de nombreuses évaluations antérieures ont reposé sur des données entachées d’erreurs structurelles, susceptibles d’avoir biaisé les diagnostics sur l’efficacité des aires protégées. À l’avenir, l’utilisation des versions corrigées de la WDPA apparaît indispensable pour produire des indicateurs fiables et comparables, et pour appuyer des décisions de politique publique et de conservation fondées sur des bases empiriques solides.
