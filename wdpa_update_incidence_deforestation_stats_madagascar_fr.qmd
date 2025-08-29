@@ -1,6 +1,6 @@
 ---
 title: "Incidence des correction des données WDPA pour Madagascar sur les statistiques de déforestation"
-author: "Florent Bédécarrats, Ollier Andrianambinina, Ingrid Dallmann, Seheno Ramanantsoa et Melvin Wong"
+author: " Ollier Andrianambinina, Florent Bédécarrats, Ingrid Dallmann, Holimalala Randriamanampisoa, Seheno Ramanantsoa et Melvin Wong"
 abstract: "La *World Database on Protected Areas* constitue la principale source d’information internationale sur les aires protégées, utilisée par les chercheurs, les décideurs et les praticiens de la conservation. Jusqu’en 2024, les données relatives à Madagascar y étaient largement incomplètes ou erronées. Leur correction en décembre 2024 a profondément modifié le panorama du réseau national d’aires protégées. Cette annexe compare les versions ancienne et corrigée de la WDPA en analysant les différences en termes de nombre, de statut, de couverture spatiale et de taux de déforestation observés. Les écarts constatés s’avèrent substantiels pour de nombreuses aires protégées et modifient significativement l’évaluation de leur efficacité. Ces résultats invitent à réinterpréter les analyses antérieures basées sur des données biaisées et à fonder les études futures sur la base corrigée."
 format: 
   html: 
