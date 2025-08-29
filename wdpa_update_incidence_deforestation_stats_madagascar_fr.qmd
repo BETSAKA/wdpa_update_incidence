@@ -254,11 +254,18 @@ if (knitr::is_html_output()) {
 }
 
 # tmap_mode("view")
-  tm_shape(wdpa_2024, name = "WDPA 2024 Nov") +
-    tm_fill(fill = "blue", fill_alpha = 0.3) +
-  tm_shape(wdpa_2025, name = "WDPA 2025 Jan") +
-    tm_fill(fill = "red", fill_alpha = 0.3) +
-    tm_basemap("Esri.WorldGrayCanvas")
+ tm_shape(filter(wdpa_2024, STATUS == "Designated")) +
+  tm_fill(fill = "blue", fill_alpha = 0.3) +
+tm_shape(filter(wdpa_2025, STATUS == "Designated")) +
+  tm_fill(fill = "red", fill_alpha = 0.3) +
+tm_basemap("Esri.WorldGrayCanvas") +
+tm_add_legend(
+  type = "polygons",
+  labels = c("WDPA novembre 2024", "WDPA janvier 2025"),
+  fill = c("blue", "red"),
+  fill_alpha = 0.3,
+  title = "Versions WDPA"
+)
 ```
 
 On observe notamment l’importance des corrections récentes dans plusieurs régions, en particulier dans le nord et le sud-ouest, où des périmètres jusque-là absents ou incomplets apparaissent désormais. Ces décalages donnent une première impression de l'ampleur considérables des discordance entre la version historique et la version corrigée.
